@@ -1,6 +1,8 @@
 # CFM 301 – Project 2: Finding and Testing a Factor
 ## Requirements guide for the downside-beta project
 
+> **Scope note:** this guide's project-specific example is downside beta, but the selected analysis in `volatility.ipynb` is the idiosyncratic-volatility LMH factor (Q1 minus Q5). The rubric-level requirements still apply, while the downside-beta formulas, models, and result snapshot below do not describe the current notebook. See `README.md` and `project2_report.md` for the current factor, results, and remaining deliverables. Confirm with the instructor that this factor choice satisfies the assignment's requirement to test a factor beyond the standard market/SMB/HML/UMD factors.
+
 This guide explains what the course expects for Project 2, requirement by requirement, and what that means for **our** project (downside beta, CAPM as the benchmark, S&P 500 monthly data, 2000–2025). Section 9 is a to-do list of what is still missing.
 
 ---
