@@ -1,0 +1,15 @@
+,Baseline,1926-1989,1990-latest,2012-latest (post-2011),NW lags = 2h,Non-overlapping returns,Nominal returns,Winsorize 5%/95%,No winsorization
+Dividend yield,4,4,3,3,4,3,3,4,4
+Earnings yield,4,4,0,0,3,2,4,3,3
+Term spread (10y - 3m),3,1,1,1,3,1,1,3,3
+Credit spread (BAA - AAA),0,0,2,3,0,0,0,0,0
+Unemployment rate,2,0,4,3,2,2,3,2,2
+GDP growth (past year),3,2,2,4,2,1,2,3,3
+Industrial production (past year),0,0,1,2,0,0,0,0,0
+Past 1-year return,3,1,2,3,3,0,1,2,3
+Past volatility (last quarter),1,1,0,1,1,0,0,0,1
+Inflation (past year),4,0,2,2,4,1,0,3,4
+Oil price (past-year change),4,1,3,2,4,0,4,4,4
+Risk-free rate,2,1,0,0,2,0,0,2,2
+VIX,0,0,0,0,0,0,0,0,0
+Consumption-wealth ratio (cay),3,4,0,1,2,0,3,2,3
