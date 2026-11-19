@@ -1,3 +1,9 @@
 .venv/
 __pycache__/
 .ipynb_checkpoints/
+
+# Project 5: download cache and logs written by pull_data.py (not needed to reproduce results)
+Mutual Funds/Data/raw/
+Mutual Funds/Data/fees_download_log.csv
+Mutual Funds/Data/check_annual_returns.csv
+~$*.docx

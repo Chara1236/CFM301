@@ -49,16 +49,14 @@ All data come from free public sources, because we have no WRDS/CRSP access. `pu
 | `turnover_by_year.csv`, `turnover_sec.csv` | SEC N-SAR item 71D; prospectus data | Portfolio turnover | Turnover vs. performance |
 | `nsar_monthly_flows.csv`, `nport_monthly.csv` | SEC Forms N-SAR and N-PORT | Monthly sales and redemptions; quarterly net assets (2019+) | Monthly TNA and flows |
 | `nport_class_returns.csv` | SEC Form N-PORT | Official monthly return by share class (2019+) | Check of our returns |
-| `fee_distribution_all_funds_2025.csv` | SEC prospectus risk/return summary data sets | 2025 expense ratio of every US fund share class | Fee distribution |
+| `fee_distribution_all_funds_2025.csv` | SEC prospectus risk/return summary data sets | 2025 expense ratio (net of waivers if reported) of every US fund share class: `class`, `value` | Fee distribution |
 | `sec_ticker_map.csv` | SEC `company_tickers_mf.json` | Ticker → SEC company, series and class IDs | Links the SEC data to the funds |
 
 These values are hard-coded in the notebook, with citations:
 - the ICI equity-fund fee averages from lecture: 1.09% simple, 0.40% asset-weighted, top 10% of growth funds ≥ 1.75%;
 - AGTHX's maximum front-end load of 5.75%.
 
-Not needed to run the notebook, so not part of the submission:
-- `Data/raw/`: the download cache;
-- `fees_download_log.csv` and `check_annual_returns.csv`: download log and check.
+If you re-run `pull_data.py`, it also writes a download cache (`Data/raw/`), a download log and a return check. These are not needed to reproduce the results and are listed in `.gitignore`.
 
 ## Outputs
 

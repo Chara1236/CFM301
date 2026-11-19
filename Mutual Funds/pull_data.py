@@ -498,7 +498,7 @@ def step_fees():
         l = pd.concat(latest).dropna(subset=["class", "value"])
         l["pref"] = l["tag"].map({t: i for i, t in enumerate(FEE_TAGS)})     # net if reported, else gross
         l = l.sort_values(["class", "pref", "period"]).drop_duplicates(["class"], keep="first")
-        save(l.drop(columns="pref"), "fee_distribution_all_funds_2025.csv")
+        save(l[["class", "value"]], "fee_distribution_all_funds_2025.csv")      # one fee per share class
 
 
 def step_panel():
