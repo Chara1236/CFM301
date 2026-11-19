@@ -1,0 +1,11 @@
+step,rows after,affected
+Fund-months in panel_monthly.csv (8 funds),3155,
+1. Common sample from 1993-07 (TRBCX inception),3120,dropped 35
+2. Duplicate fund-months removed,3120,0
+3. Months missing a return or factor removed,3120,0
+4. Distributions corrected (Yahoo vs SEC N-SAR item 73),3120,"6 events, 3 funds"
+5a. Active fund-months with expense ratio filled/carried,3120,192 of 1560
+5b. Active fund-months with turnover filled/carried,3120,96 of 1560
+6. Active fund-months with no reported flow (see §10),3120,98 of 1560
+7. Outliers: |monthly return| > 25% (kept),3120,0
+"7b. Carhart residuals beyond 4 sd (flagged, kept)",3120,2

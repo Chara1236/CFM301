@@ -1,0 +1,5 @@
+,Baseline Carhart,FF3,Index-fund benchmark,"Carhart, first half","Carhart, second half",Winsorized 1/99,Rolling 36m: % windows net α≥0 (median α),AGTHX with 5.75% load (10y)
+FCNTX,+1.69 ✓,+3.03 ✓,+1.19 ✓,+0.91 ✓,+0.68 ✓,+2.22 ✓,50% (+0.00),no load
+TRBCX,+1.32 ✓,+1.36 ✓,+0.48 ✓,+1.42 ✓,-0.19 ✗,+2.07 ✓,61% (+0.44),no load
+AGTHX,+1.68 ✓,+1.69 ✓,+0.81 ✓,+3.09 ✓,-0.29 ✗,+2.11 ✓,59% (+0.31),+1.08 ✓
+FMAGX,-1.48 ✗,-1.36 ✗,-1.48 ✗,-1.08 ✗,-2.63 ✗,-0.67 ✗,31% (-0.88),no load

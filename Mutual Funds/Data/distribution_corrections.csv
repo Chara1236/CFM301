@@ -1,0 +1,7 @@
+ticker,date,amount,reason
+AGTHX,1993-12-15,0.2725,Yahoo records half the payout (all AGTHX distributions before 1996 are halved); doubling makes the ex-date return -0.04% vs S&P 500 -0.27%
+AGTHX,1994-12-21,0.3025,SEC N-SAR item 73 FY1995: $1.21/share = $0.605 at Yahoo's pre-1996 price scale; Yahoo has $0.3025
+AGTHX,1995-12-20,0.64,SEC N-SAR item 73 FY1996: $2.56/share = $1.28 at Yahoo's pre-1996 price scale; Yahoo has $0.64
+TRBCX,1994-12-28,0.11,SEC N-SAR item 73 FY1994: $0.22/share; Yahoo has $0.11
+TRBCX,1995-12-27,0.08,SEC N-SAR item 73 FY1995: $0.23/share; Yahoo has $0.15
+FCNTX,2002-06-07,-0.23,Spurious: NAV did not drop on the ex-date; SEC N-SAR item 73 FY2002 total is $0.05/share ($0.005 at Yahoo's price scale) which Yahoo records on 2002-12-27

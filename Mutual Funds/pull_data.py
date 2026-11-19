@@ -20,8 +20,8 @@ delete a file to re-download it):
            share class (your funds' history + fee distribution)
   panel    Merge everything into one monthly analysis file + run checks
 
-The SEC asks every script to identify itself. Put your name and email in
-SEC_USER_AGENT below (or set the environment variable SEC_USER_AGENT).
+The SEC asks every script to identify itself. Set the environment variable
+before running (PowerShell):  $env:SEC_USER_AGENT = "Your Name your@email"
 
 Requirements: pip install pandas numpy requests yfinance
 """
@@ -39,7 +39,7 @@ import pandas as pd
 import requests
 
 # ---------------------------------------------------------------- settings ---
-SEC_USER_AGENT = os.environ.get("SEC_USER_AGENT", "UWaterloo CFM301 student c245zhao@uwaterloo.ca")
+SEC_USER_AGENT = os.environ.get("SEC_USER_AGENT", "")      # set in the terminal, never in this file
 
 HERE = Path(__file__).resolve().parent
 DATA = HERE / "Data"
@@ -55,19 +55,21 @@ FUNDS = {   # ticker: short name used in every output file
     "AGTHX": "GrowthFundAmerica_A",
     "FMAGX": "Magellan",
 }
-EXTRA = {"GFACX": "GrowthFundAmerica_C"}                 # share-class sensitivity
+EXTRA = {}                                                # (GFACX share class dropped from the study)
 INDEX = {"VFINX": "Vanguard500", "NAESX": "VanguardSmallCap",
          "VIVAX": "VanguardValue", "VIGRX": "VanguardGrowth"}
 ALL = {**FUNDS, **EXTRA, **INDEX}
 
 # words that identify each fund inside multi-fund SEC filings
 NAME_KEYS = {"FCNTX": "CONTRAFUND", "TRBCX": "BLUE CHIP GROWTH", "AGTHX": "GROWTH FUND OF AMERICA",
-             "FMAGX": "MAGELLAN", "GFACX": "GROWTH FUND OF AMERICA",
+             "FMAGX": "MAGELLAN",
              "VFINX": "500 INDEX", "NAESX": "SMALL-CAP INDEX", "VIVAX": "VALUE INDEX",
              "VIGRX": "GROWTH INDEX"}
 
 FRENCH = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/"
-RR_URL = "https://www.sec.gov/files/dera/data/mutual-fund-prospectus-risk/return-summary-data-sets/{q}_rr1.zip"
+# SEC posts 2011-2023 as one file per year (e.g. 2019_rr1.zip) and later data per quarter (2025q1_rr1.zip)
+RR_BASE = "https://www.sec.gov/files/dera/data/mutual-fund-prospectus-risk/return-summary-data-sets/"
+NSAR_CAP = 99_999_999        # N-SAR amount field is full at $100B ($000); the true value is unknown
 
 
 # ----------------------------------------------------------------- helpers ---
@@ -89,7 +91,7 @@ _last = [0.0]
 def sec_get(url, binary=False):
     """GET from sec.gov with the required User-Agent and <=8 requests/second."""
     if not SEC_USER_AGENT:
-        sys.exit("Set SEC_USER_AGENT at the top of pull_data.py to 'Your Name your@email' first.")
+        sys.exit('Set the SEC user agent first, e.g. in PowerShell: $env:SEC_USER_AGENT = "Your Name your@email"')
     wait = 0.13 - (time.time() - _last[0])
     if wait > 0:
         time.sleep(wait)
@@ -120,7 +122,8 @@ def ticker_map():
     p = DATA / "sec_ticker_map.csv"
     if not p.exists():
         step_tickers()
-    return pd.read_csv(p)
+    tm = pd.read_csv(p)
+    return tm[tm["ticker"].isin(ALL)]
 
 
 def filings(cik, forms):
@@ -156,16 +159,28 @@ def step_yahoo():
        If the two disagree a lot in a month, a distribution is probably missing."""
     if done("returns_monthly.csv"):
         return
-    import yfinance as yf
+    # Yahoo misses or misstates a few distributions; corrections checked against SEC N-SAR item 73
+    # (distributions per share) and the ex-date price move. Amount in Yahoo's price units.
+    corr_p = DATA / "distribution_corrections.csv"
+    corr = pd.read_csv(corr_p, parse_dates=["date"]) if corr_p.exists() else pd.DataFrame(columns=["ticker", "date", "amount"])
     out = []
     for t, name in ALL.items():
-        h = yf.Ticker(t).history(start=START, end="2026-01-01", auto_adjust=False, actions=True)
-        if h.empty:
-            print(f"  WARNING: no Yahoo data for {t}")
-            continue
-        h.index = h.index.tz_localize(None)
-        h.to_csv(RAW / f"yahoo_daily_{t}.csv")
+        cache = RAW / f"yahoo_daily_{t}.csv"
+        if cache.exists():                                    # reuse the saved download
+            h = pd.read_csv(cache, index_col=0)
+            h.index = pd.to_datetime(h.index, utc=True).tz_localize(None).normalize()
+        else:
+            import yfinance as yf
+            h = yf.Ticker(t).history(start=START, end="2026-01-01", auto_adjust=False, actions=True)
+            if h.empty:
+                print(f"  WARNING: no Yahoo data for {t}")
+                continue
+            h.index = h.index.tz_localize(None)
+            h.to_csv(cache)
         dist = h.get("Dividends", 0) + h.get("Capital Gains", 0)
+        for _, c in corr[corr["ticker"] == t].iterrows():
+            dist.loc[c["date"]] += c["amount"]
+            print(f"  {t} {c['date']:%Y-%m-%d}: distribution corrected by {c['amount']:+}")
         daily_tr = (h["Close"] + dist) / h["Close"].shift(1) - 1
         m = pd.DataFrame({
             "ret_tr": (1 + daily_tr).resample("ME").prod() - 1,
@@ -288,13 +303,15 @@ def step_nport():
                                  "ticker": classes.get(c["classId"]), "ret_pct": num(c[f"rtn{k}"])})
     df = pd.DataFrame(rows).sort_values(["ticker", "date", "accession"])
     df = df.drop_duplicates(["ticker", "date"], keep="last")              # amendments: keep latest
-    df["net_flow"] = df["sales"].fillna(0) + df["reinvestment"].fillna(0) - df["redemption"].fillna(0)
+    # reinvested distributions are left out on purpose: they are not new investor money
+    df["net_flow"] = df["sales"] - df["redemption"]
     save(df, "nport_monthly.csv")
     r = pd.DataFrame(rets).dropna(subset=["ticker"]).drop_duplicates(["class_id", "date"], keep="last")
     save(r, "nport_class_returns.csv")
 
 
-NSAR_LINE = re.compile(r"^(\d{3})\s+([A-Z])(\d{2})(\d{2})(\d{2})\s+(.*\S)\s*$")
+# series is two digits, or "AA" = answer applies to all series (common in 1990s filings)
+NSAR_LINE = re.compile(r"^(\d{3})\s+([A-Z])(\d{2})([0-9A]{2})(\d{2})\s+(.*\S)\s*$")
 
 
 def parse_nsar(text):
@@ -340,68 +357,148 @@ def step_nsar():
                 continue
             s = nsar_series_for(L, NAME_KEYS[fund["ticker"]])
             S = L[L["series"] == s]
+            AA = L[L["series"] == "AA"]                             # answers shared by all series
             def get(item, row, col="00"):
                 hit = S.loc[(S["item"] == item) & (S["row"] == row) & (S["col"] == col), "value"]
-                return num(hit.iloc[0]) if len(hit) else np.nan
+                if hit.empty:
+                    hit = AA.loc[(AA["item"] == item) & (AA["row"] == row) & (AA["col"] == col), "value"]
+                v = num(hit.iloc[0]) if len(hit) else np.nan
+                return np.nan if v >= NSAR_CAP else v               # capped field = unknown
+            # (for funds over $100B the asset fields can also overflow to 0 or negative; see fee_table)
             end = pd.Timestamp(period) + pd.offsets.MonthEnd(0)
             rows.append({"date": end, "ticker": fund["ticker"], "form": r["form"], "accession": acc,
                          "nsar_series": s,
-                         "net_assets_k": get("074", "T"),            # net assets, $000
-                         "avg_net_assets_k": get("074", "V"),        # average net assets, $000
-                         "total_expenses_k": get("072", "X")})       # total expenses, $000
+                         "net_assets_k": get("074", "T"),            # item 74T: net assets, $000
+                         "avg_net_assets_k": get("075", "B"),        # item 75B: avg net assets (non-MMF), $000
+                         "total_expenses_k": get("072", "X"),        # item 72X: total expenses, $000
+                         "reimbursed_k": get("072", "Y"),            # item 72Y: expense reimbursements, $000
+                         "turnover_pct": get("071", "D"),            # item 71D: portfolio turnover rate, %
+                         "div_ps": get("073", "A", "01"),            # item 73A1: dividends per share, $
+                         "capgain_ps": get("073", "B")})             # item 73B: capital gains per share, $
             for i, row in enumerate("ABCDEF"):                       # item 28: 6 months of flows
                 monthly.append({"date": end - pd.offsets.MonthEnd(5 - i), "ticker": fund["ticker"],
                                 "sales_k": get("028", row, "01"), "reinvest_k": get("028", row, "02"),
                                 "redemptions_k": get("028", row, "04"), "accession": acc})
     df = pd.DataFrame(rows).sort_values(["ticker", "date", "accession"]).drop_duplicates(
         ["ticker", "date"], keep="last")
+    # funds over $100B overflow the 8-digit asset fields: they show 0, a negative number, or wrap
+    # around (e.g. $119B reported as $19B). Drop those: <= 0, or < 40% of the last good value.
+    for c in ("net_assets_k", "avg_net_assets_k"):
+        df.loc[df[c] <= 0, c] = np.nan
+        for t, g in df.groupby("ticker"):
+            last = np.nan
+            for i, v in g[c].items():
+                if pd.notna(v) and pd.notna(last) and v < 0.4 * last:
+                    df.loc[i, c] = np.nan
+                elif pd.notna(v):
+                    last = v
     # NSAR-B expenses cover the whole fiscal year; NSAR-A covers six months
     months = np.where(df["form"].str.startswith("NSAR-B"), 12, 6)
-    df["expense_ratio_est"] = df["total_expenses_k"] / df["avg_net_assets_k"] * (12 / months)
+    net_exp = df["total_expenses_k"] - df["reimbursed_k"].fillna(0)     # what shareholders actually paid
+    df["expense_ratio_est"] = net_exp / df["avg_net_assets_k"] * (12 / months)
     save(df, "nsar_semiannual.csv")
     m = pd.DataFrame(monthly).sort_values(["ticker", "date", "accession"]).drop_duplicates(
         ["ticker", "date"], keep="last")
-    m["net_flow_k"] = m["sales_k"].fillna(0) + m["reinvest_k"].fillna(0) - m["redemptions_k"].fillna(0)
+    m["net_flow_k"] = m["sales_k"] - m["redemptions_k"]               # reinvestment left out on purpose
     save(m, "nsar_monthly_flows.csv")
     print("  CHECK: compare a few net_assets_k and expense_ratio_est values with the funds' annual reports.")
 
 
+FEE_TAGS = ["NetExpensesOverAssets", "ExpensesOverAssets"]      # net (after waivers) preferred
+
+
+def rr_num_tables(zf):
+    """Yield every num.tsv inside a risk/return zip (annual zips may hold quarterly zips or folders)."""
+    for n in zf.namelist():
+        low = n.lower()
+        if low.endswith(".zip"):
+            with zipfile.ZipFile(io.BytesIO(zf.read(n))) as inner:
+                yield from rr_num_tables(inner)
+        elif low.rsplit("/", 1)[-1].startswith("num") and low.endswith((".tsv", ".txt")):
+            yield pd.read_csv(zf.open(n), sep="\t", dtype=str, low_memory=False, on_bad_lines="skip")
+
+
+def rr_period(label, tm, log):
+    """Download one risk/return file, keep expense-ratio and turnover facts. Cached in raw/ as small
+       CSVs. Returns (fees for my funds, all-fund fees, turnover for my funds) or None if the file is
+       not on the SEC site."""
+    mine_p, all_p = RAW / f"rr_{label}_mine.csv", RAW / f"rr_{label}_allfees.csv"
+    turn_p = RAW / f"rr_{label}_turnover.csv"
+    if mine_p.exists() and turn_p.exists():
+        log.append({"period": label, "status": "cached"})
+        return pd.read_csv(mine_p, dtype={"ddate": str}), pd.read_csv(all_p), pd.read_csv(turn_p)
+    raw = RAW / f"{label}_rr1.zip"
+    try:
+        if not raw.exists():
+            raw.write_bytes(sec_get(RR_BASE + f"{label}_rr1.zip", binary=True))
+        with zipfile.ZipFile(raw) as z:
+            d = pd.concat(list(rr_num_tables(z)), ignore_index=True)
+    except Exception as e:
+        log.append({"period": label, "status": "failed", "error": f"{type(e).__name__}: {e}"[:200]})
+        raw.unlink(missing_ok=True)
+        return None
+    raw.unlink()                                      # zips are big; keep only what we use
+    for c in ("series", "class", "ddate", "adsh"):
+        if c not in d:
+            d[c] = np.nan
+    # turnover is a property of the portfolio (series), so it is matched on series, not class
+    tv = d[d["tag"].str.contains("Turnover", case=False, na=False) & d["series"].isin(tm["series_id"])].copy()
+    tv["value"] = pd.to_numeric(tv["value"], errors="coerce")
+    tv["period"] = label
+    tv = tv.merge(tm[["series_id", "ticker"]], left_on="series", right_on="series_id")
+    tv = tv[["period", "adsh", "tag", "ddate", "series", "value", "ticker"]]
+    tv.to_csv(turn_p, index=False)
+    d = d[d["tag"].isin(FEE_TAGS)].copy()
+    d["value"] = pd.to_numeric(d["value"], errors="coerce")
+    d["period"] = label
+
+    # match on share class only: a fact without a class can belong to any class of the series
+    # (e.g. Vanguard 500 Admiral at 0.05% vs Investor VFINX at 0.14%)
+    d["ticker"] = d["class"].map(dict(zip(tm["class_id"], tm["ticker"])))
+    d["level"] = "class"
+    mine = d[d["ticker"].notna()][["period", "adsh", "tag", "ddate", "series", "class", "value", "ticker", "level"]]
+    allf = d[["period", "series", "class", "tag", "value"]]
+    mine.to_csv(mine_p, index=False)
+    allf.to_csv(all_p, index=False)
+    log.append({"period": label, "status": "ok", "fee_facts_all_funds": len(d), "fee_facts_my_funds": len(mine),
+                "my_tickers": " ".join(sorted(mine["ticker"].unique())), "turnover_facts_my_funds": len(tv)})
+    return mine, allf, tv
+
+
 def step_fees():
-    """Expense ratios from the SEC risk/return data sets (all funds, 2011+)."""
+    """Expense ratios from the SEC risk/return data sets (all funds, 2011+).
+       Writes fees_download_log.csv so failed or empty periods are visible."""
     if done("expense_ratios_sec.csv"):
         return
     tm = ticker_map()
-    my_classes = set(tm["class_id"])
-    hist, latest = [], []
-    for year in range(2011, 2026):
-        for q in range(1, 5):
-            tag = f"{year}q{q}"
-            raw = RAW / f"{tag}_rr1.zip"
-            try:
-                if not raw.exists():
-                    raw.write_bytes(sec_get(RR_URL.format(q=tag), binary=True))
-                with zipfile.ZipFile(raw) as z:
-                    numf = [n for n in z.namelist() if n.lower().startswith("num")][0]
-                    d = pd.read_csv(z.open(numf), sep="\t", dtype=str, low_memory=False)
-            except Exception as e:
-                print(f"  {tag}: skipped ({e})")
-                continue
-            d = d[d["tag"].str.contains("ExpensesOverAssets", na=False)]
-            d["value"] = pd.to_numeric(d["value"], errors="coerce")
-            d["quarter"] = tag
-            hist.append(d[d["class"].isin(my_classes)])
+    hist, latest, turn, log = [], [], [], []
+    # through 2026: prospectuses filed in 2026 report fiscal-2025 fees (see fee_table)
+    for year in range(2011, 2027):
+        got = rr_period(str(year), tm, log) if year <= 2024 else None
+        if got is None:                                  # no yearly file -> try the four quarters
+            got = [g for q in range(1, 5) if (g := rr_period(f"{year}q{q}", tm, log)) is not None]
+        else:
+            got = [got]
+        for mine, allf, tv in got:
+            hist.append(mine)
+            turn.append(tv)
             if year == 2025:
-                latest.append(d)
-            print(f"  {tag}: {len(d):,} expense-ratio facts")
-            raw.unlink()                       # zips are big; keep only what we use
-    h = pd.concat(hist)[["quarter", "adsh", "tag", "ddate", "series", "class", "value"]]
-    h = h.merge(tm[["class_id", "ticker"]], left_on="class", right_on="class_id", how="left")
+                latest.append(allf)
+        print(f"  {year}: {sum(len(g[0]) for g in got)} fee and {sum(len(g[2]) for g in got)} turnover "
+              f"facts for my funds from {len(got)} file(s)")
+    lg = pd.DataFrame(log)
+    lg.to_csv(DATA / "fees_download_log.csv", index=False)
+    print(f"  saved fees_download_log.csv: {(lg['status'] == 'failed').sum()} failed downloads "
+          "(a failed yearly file is normal when SEC posts that year by quarter)")
+    h = pd.concat(hist, ignore_index=True)
+    h["ddate"] = h["ddate"].astype(str).str[:8]
     save(h, "expense_ratios_sec.csv")
+    save(pd.concat(turn, ignore_index=True), "turnover_sec.csv")
     if latest:
-        l = pd.concat(latest)
-        l = l[l["tag"] == "NetExpensesOverAssets"] if (l["tag"] == "NetExpensesOverAssets").any() else l
-        save(l[["quarter", "series", "class", "tag", "value"]].drop_duplicates(["class"], keep="last"),
-             "fee_distribution_all_funds_2025.csv")
+        l = pd.concat(latest).dropna(subset=["class", "value"])
+        l["pref"] = l["tag"].map({t: i for i, t in enumerate(FEE_TAGS)})     # net if reported, else gross
+        l = l.sort_values(["class", "pref", "period"]).drop_duplicates(["class"], keep="first")
+        save(l.drop(columns="pref"), "fee_distribution_all_funds_2025.csv")
 
 
 def step_panel():
@@ -416,49 +513,167 @@ def step_panel():
     p["ret"] = p["ret_tr"]
     p["exret"] = p["ret"] - p["rf"]
 
-    # annual expense ratio -> monthly; best available source per year
-    exp = []
-    if (DATA / "expense_ratios_sec.csv").exists():
-        e = pd.read_csv(DATA / "expense_ratios_sec.csv")
-        e = e[e["tag"] == "ExpensesOverAssets"] if (e["tag"] == "ExpensesOverAssets").any() else e
-        e["year"] = e["quarter"].str[:4].astype(int)
-        exp.append(e.groupby(["ticker", "year"])["value"].median().rename("exp_ratio").reset_index()
-                     .assign(exp_source="SEC prospectus"))
-    if (DATA / "nsar_semiannual.csv").exists():
-        n = pd.read_csv(DATA / "nsar_semiannual.csv", parse_dates=["date"])
-        n = n[n["form"].str.startswith("NSAR-B")].assign(year=lambda x: x["date"].dt.year)
-        exp.append(n.groupby(["ticker", "year"])["expense_ratio_est"].last().rename("exp_ratio")
-                     .reset_index().assign(exp_source="N-SAR estimate"))
-    manual = DATA / "expense_ratios_manual.csv"        # optional: ticker,year,exp_ratio (decimal)
-    if manual.exists():
-        exp.insert(0, pd.read_csv(manual).assign(exp_source="manual (annual report)"))
-    if exp:
-        E = pd.concat(exp).dropna(subset=["exp_ratio"]).drop_duplicates(["ticker", "year"], keep="first")
-        E.loc[E["exp_ratio"] > 0.05, "exp_ratio"] /= 100            # percent -> decimal
-        p["year"] = p["date"].dt.year
-        p = p.merge(E, on=["ticker", "year"], how="left")
-        p["exp_ratio"] = p.groupby("ticker")["exp_ratio"].transform(lambda s: s.ffill().bfill())
-        p["exp_monthly"] = p["exp_ratio"] / 12
-        p["ret_gross"] = p["ret"] + p["exp_monthly"]
-        p["exret_gross"] = p["ret_gross"] - p["rf"]
+    # annual expense ratio -> monthly; one fee per fund-year (manual > SEC prospectus > N-SAR)
+    years = p.assign(year=p["date"].dt.year).groupby("ticker")["year"].agg(["min", "max"])
+    fees = fee_table(years)
+    save(fees, "expense_ratio_by_year.csv")
+    p["year"] = p["date"].dt.year
+    p = p.merge(fees, on=["ticker", "year"], how="left")
+    p["exp_monthly"] = p["exp_ratio"] / 12
+    p["ret_gross"] = p["ret"] + p["exp_monthly"]
+    p["exret_gross"] = p["ret_gross"] - p["rf"]
+    turnover = turnover_table(years)
+    save(turnover, "turnover_by_year.csv")
+    p = p.merge(turnover, on=["ticker", "year"], how="left")
 
-    # flows: N-SAR (1994-2018) and N-PORT (2019+), in dollars
+    # flows: N-SAR (1994-2018) and N-PORT (2019+), in dollars; sales - redemptions,
+    # reinvested distributions left out on purpose (not new investor money)
     fl = []
     if (DATA / "nsar_monthly_flows.csv").exists():
         a = pd.read_csv(DATA / "nsar_monthly_flows.csv", parse_dates=["date"])
-        fl.append(a.assign(net_flow=a["net_flow_k"] * 1000, flow_source="N-SAR")[["ticker", "date", "net_flow", "flow_source"]])
+        a["net_flow"] = (a["sales_k"] - a["redemptions_k"]) * 1000
+        fl.append(a.assign(flow_source="N-SAR")[["ticker", "date", "net_flow", "flow_source"]])
     if (DATA / "nport_monthly.csv").exists():
-        b = pd.read_csv(DATA / "nport_monthly.csv", parse_dates=["date"])
+        b = nport_by_ticker()
+        b["net_flow"] = b["sales"] - b["redemption"]
         fl.append(b.assign(flow_source="N-PORT")[["ticker", "date", "net_flow", "flow_source"]])
     if fl:
-        F = pd.concat(fl).sort_values("flow_source").drop_duplicates(["ticker", "date"], keep="last")
+        F = pd.concat(fl).dropna(subset=["net_flow"]).sort_values("flow_source")
+        F = F.drop_duplicates(["ticker", "date"], keep="last")          # N-PORT wins if both
         p = p.merge(F, on=["ticker", "date"], how="left")
+    p = p.merge(tna_table(), on=["ticker", "date"], how="left")
     p["role"] = np.where(p["ticker"].isin(list(FUNDS)), "active", np.where(p["ticker"].isin(list(INDEX)), "index", "extra"))
     save(p.drop(columns=["year"], errors="ignore"), "panel_monthly.csv")
-    check(p)
+    check(p, fees)
+    print("\n  turnover coverage (years by source):")
+    print(fee_coverage(turnover.rename(columns={"turnover": "exp_ratio", "turnover_source": "exp_source"})).to_string())
 
 
-def check(p):
+def fee_table(years):
+    """One expense ratio per fund-year (decimal) with its source.
+       Known years come from (in priority order) Data/expense_ratios_manual.csv, SEC prospectus data
+       (net of waivers when reported) and the N-SAR estimate (fund level, so not used for GFACX).
+       Gaps between known years are interpolated ('filled'); years before the first / after the
+       last known year repeat the nearest known value ('carried')."""
+    known = []
+    manual = DATA / "expense_ratios_manual.csv"        # optional: ticker,year,exp_ratio (decimal)
+    if manual.exists():
+        m = pd.read_csv(manual)
+        m.loc[m["exp_ratio"] > 0.05, "exp_ratio"] /= 100           # typed as percent -> decimal
+        known.append(m.assign(exp_source="manual (annual report)"))
+    if (DATA / "expense_ratios_sec.csv").exists():
+        e = pd.read_csv(DATA / "expense_ratios_sec.csv", dtype={"ddate": str})
+        if "period" not in e:                                       # file from the old version
+            e["period"] = e["quarter"]
+        if "level" in e:
+            e = e[e["level"] == "class"]
+        # the prospectus fee table reports the PREVIOUS fiscal year's actual expenses, so a fee filed in
+        # year t is assigned to t-1 (the same fiscal-year basis as the N-SAR estimate). ddate is not
+        # used because it is a fiscal year-end in some filings and a prospectus date in others.
+        e["year"] = e["period"].astype(str).str[:4].astype(int) - 1
+        e["pref"] = e["tag"].map({t: i for i, t in enumerate(FEE_TAGS)})
+        e = e[e["pref"] == e.groupby(["ticker", "year"])["pref"].transform("min")]
+        known.append(e.groupby(["ticker", "year"])["value"].median().rename("exp_ratio").reset_index()
+                       .assign(exp_source="SEC prospectus"))
+    if (DATA / "nsar_semiannual.csv").exists():
+        n = pd.read_csv(DATA / "nsar_semiannual.csv", parse_dates=["date"])
+        n = n[(n["ticker"] != "GFACX") & n["form"].str.startswith("NSAR-B")].assign(year=lambda x: x["date"].dt.year)
+        n = n[n["avg_net_assets_k"] > 0]       # 0 / negative = field overflowed (fund > $100B)
+        known.append(n.groupby(["ticker", "year"])["expense_ratio_est"].last().rename("exp_ratio")
+                       .reset_index().assign(exp_source="N-SAR estimate"))
+    return fill_years(known, years, "exp_ratio", "exp_source")
+
+
+def fill_years(known, years, col, src):
+    """Stack known (ticker, year, col, src) tables (first one wins), then give every fund one row per
+       year: gaps between known years are interpolated ('filled'), years before the first / after the
+       last known year repeat the nearest known value ('carried')."""
+    K = (pd.concat(known).dropna(subset=[col]).drop_duplicates(["ticker", "year"], keep="first")
+         if known else pd.DataFrame(columns=["ticker", "year", col, src]))
+    out = []
+    for t, (y0, y1) in years.iterrows():
+        g = pd.DataFrame({"ticker": t, "year": range(y0, y1 + 1)}).merge(K, on=["ticker", "year"], how="left")
+        known_rows = g[col].notna()
+        g[col] = g[col].interpolate(limit_area="inside")
+        g.loc[~known_rows & g[col].notna(), src] = "filled"
+        g[col] = g[col].ffill().bfill()
+        g.loc[g[src].isna() & g[col].notna(), src] = "carried"
+        out.append(g)
+    return pd.concat(out, ignore_index=True)[["ticker", "year", col, src]]
+
+
+def turnover_table(years):
+    """One portfolio turnover rate per fund-year (decimal, 0.30 = 30%) with its source.
+       Known years: Data/turnover_manual.csv (ticker,year,turnover), SEC prospectus (filed in year t ->
+       fiscal year t-1, as for fees) and N-SAR item 71D (annual reports, NSAR-B). Turnover is a
+       portfolio figure, so AGTHX and GFACX share it."""
+    known = []
+    manual = DATA / "turnover_manual.csv"
+    if manual.exists():
+        m = pd.read_csv(manual)
+        m.loc[m["turnover"] > 5, "turnover"] /= 100                 # typed as percent -> decimal
+        known.append(m.assign(turnover_source="manual (annual report)"))
+    if (DATA / "turnover_sec.csv").exists():
+        s = pd.read_csv(DATA / "turnover_sec.csv")
+        s["year"] = s["period"].astype(str).str[:4].astype(int) - 1
+        s.loc[s["value"] > 5, "value"] /= 100                        # percent -> decimal if needed
+        known.append(s.groupby(["ticker", "year"])["value"].median().rename("turnover").reset_index()
+                       .assign(turnover_source="SEC prospectus"))
+    if (DATA / "nsar_semiannual.csv").exists():
+        n = pd.read_csv(DATA / "nsar_semiannual.csv", parse_dates=["date"])
+        if "turnover_pct" in n:
+            n = n[n["form"].str.startswith("NSAR-B")].assign(year=lambda x: x["date"].dt.year,
+                                                             turnover=lambda x: x["turnover_pct"] / 100)
+            known.append(n.groupby(["ticker", "year"])["turnover"].last().reset_index()
+                           .assign(turnover_source="N-SAR"))
+    return fill_years(known, years, "turnover", "turnover_source")
+
+
+def nport_by_ticker():
+    """N-PORT is filed per series; give the rows to every ticker in that series
+       (AGTHX and GFACX share one series, so both get the same fund-level flows and TNA)."""
+    b = pd.read_csv(DATA / "nport_monthly.csv", parse_dates=["date"]).drop(columns="ticker")
+    tm = ticker_map()
+    tm = tm[tm["ticker"].isin(list(FUNDS) + list(EXTRA))]
+    return b.merge(tm[["series_id", "ticker"]], on="series_id")
+
+
+def tna_table():
+    """Total net assets in dollars at the dates they are reported: N-SAR (semi-annual, to 2018)
+       and N-PORT (quarter ends, 2019+). Fund (series) level, so AGTHX and GFACX share one TNA."""
+    parts = []
+    if (DATA / "nsar_semiannual.csv").exists():
+        n = pd.read_csv(DATA / "nsar_semiannual.csv", parse_dates=["date"])
+        n = n[(n["net_assets_k"] > 0) & (n["net_assets_k"] < NSAR_CAP)]    # 0 / negative = overflow
+        parts.append(n.assign(tna=n["net_assets_k"] * 1000, tna_source="N-SAR")[["ticker", "date", "tna", "tna_source"]])
+    if (DATA / "nport_monthly.csv").exists():
+        b = nport_by_ticker().rename(columns={"net_assets": "tna"})
+        parts.append(b.assign(tna_source="N-PORT")[["ticker", "date", "tna", "tna_source"]])
+    if not parts:
+        return pd.DataFrame(columns=["ticker", "date", "tna", "tna_source"])
+    T = pd.concat(parts).dropna(subset=["tna"]).sort_values("tna_source")
+    return T.drop_duplicates(["ticker", "date"], keep="last")
+
+
+def fee_coverage(fees):
+    """Years per source for each fund, and the runs of years that are NOT directly observed."""
+    cov = (fees.pivot_table(index="ticker", columns="exp_source", values="year", aggfunc="count", fill_value=0)
+               .reindex(sorted(fees["ticker"].unique()), fill_value=0))
+    gaps = {}
+    for t, g in fees.groupby("ticker"):
+        miss = g.loc[g["exp_source"].isin(["filled", "carried"]) | g["exp_ratio"].isna(), "year"].tolist()
+        runs, start = [], None
+        for i, y in enumerate(miss):
+            start = y if start is None else start
+            if i == len(miss) - 1 or miss[i + 1] != y + 1:
+                runs.append(f"{start}" if start == y else f"{start}-{y}")
+                start = None
+        gaps[t] = ", ".join(runs) or "-"
+    cov["not_observed"] = pd.Series(gaps)
+    return cov
+
+
+def check(p, fees=None):
     print("\n--- data checks (report these counts, requirement 4) ---")
     print(f"  duplicate fund-months : {p.duplicated(['ticker', 'date']).sum()}")
     print(f"  months missing return : {p['ret'].isna().sum()}")
@@ -471,7 +686,18 @@ def check(p):
     cov = p.dropna(subset=["ret"]).groupby("ticker")["date"].agg(["min", "max", "count"])
     if "net_flow" in p:
         cov["flow_months"] = p.dropna(subset=["net_flow"]).groupby("ticker").size()
-    print(cov.to_string())
+    if "tna" in p:
+        cov["tna_obs"] = p.dropna(subset=["tna"]).groupby("ticker").size()
+    print(cov.fillna(0).to_string())
+    if fees is not None:
+        print("\n  fee coverage (years by source; 'not_observed' = filled or carried, fill these by hand):")
+        with pd.option_context("display.width", 200, "display.max_colwidth", 80):
+            print(fee_coverage(fees).to_string())
+        odd = fees[fees["exp_source"].isin(["SEC prospectus", "N-SAR estimate", "manual (annual report)"])
+                   & ((fees["exp_ratio"] < 0.0005) | (fees["exp_ratio"] > 0.015))]
+        if len(odd):
+            print("\n  fees outside 0.05%-1.5% (check against the annual report):")
+            print(odd.to_string(index=False))
 
 
 STEPS = {"tickers": step_tickers, "yahoo": step_yahoo, "french": step_french,
