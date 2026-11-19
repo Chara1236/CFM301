@@ -61,19 +61,6 @@ tickers/sample, and re-run: the pipeline, report and deck regenerate
 unchanged. Flows can then be computed as
 flow(t) = TNA(t) - TNA(t-1) x (1 + r(t)).
 
-## How to run
-
-```bash
-python3 -m venv .venv && .venv/bin/pip install pandas numpy scipy statsmodels matplotlib fpdf2 python-pptx
-.venv/bin/python run_project.py            # -> outputs/*.csv
-.venv/bin/python report/make_figures.py    # -> outputs/fig_*.png
-.venv/bin/python report/make_report.py     # -> report/report.pdf (4 pages)
-.venv/bin/python presentation/make_deck.py # -> presentation/deck.pptx (7 slides)
-```
-
-Everything runs offline on the files in `data/`; no WRDS login, no
-internet. `run_project.py` prints the cleaning counts, the persistence
-Spearman rho and the fee/turnover correlations.
 
 ## Method (one paragraph)
 
