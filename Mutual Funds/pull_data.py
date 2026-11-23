@@ -5,6 +5,11 @@ Run from the CFM301 folder in the VS Code terminal:
     python "Mutual Funds/pull_data.py"            # everything
     python "Mutual Funds/pull_data.py" yahoo sec  # only some steps
 
+The notebook needs only 4 files in Data/: panel_monthly.csv, nport_class_returns.csv,
+fee_distribution_all_funds_2025.csv and distribution_corrections.csv (hand-checked
+corrections, kept in the repo). The other files this script writes are intermediate
+and are listed in .gitignore.
+
 Steps (each saves CSVs to Mutual Funds/Data/ and is skipped if its output exists;
 delete a file to re-download it):
 
@@ -307,7 +312,7 @@ def step_nport():
     df["net_flow"] = df["sales"] - df["redemption"]
     save(df, "nport_monthly.csv")
     r = pd.DataFrame(rets).dropna(subset=["ticker"]).drop_duplicates(["class_id", "date"], keep="last")
-    save(r, "nport_class_returns.csv")
+    save(r[["date", "ticker", "ret_pct"]], "nport_class_returns.csv")
 
 
 # series is two digits, or "AA" = answer applies to all series (common in 1990s filings)
@@ -501,6 +506,10 @@ def step_fees():
         save(l[["class", "value"]], "fee_distribution_all_funds_2025.csv")      # one fee per share class
 
 
+PANEL_COLS = ["date", "ticker", "ret", "mktrf", "smb", "hml", "umd", "rf", "exp_ratio", "exp_source",
+              "turnover", "turnover_source", "net_flow", "tna"]
+
+
 def step_panel():
     """One row per fund-month with everything the regressions need."""
     need = ["returns_monthly.csv", "ff_factors.csv"]
@@ -543,7 +552,7 @@ def step_panel():
         p = p.merge(F, on=["ticker", "date"], how="left")
     p = p.merge(tna_table(), on=["ticker", "date"], how="left")
     p["role"] = np.where(p["ticker"].isin(list(FUNDS)), "active", np.where(p["ticker"].isin(list(INDEX)), "index", "extra"))
-    save(p.drop(columns=["year"], errors="ignore"), "panel_monthly.csv")
+    save(p[PANEL_COLS], "panel_monthly.csv")       # only the columns mutualfunds.ipynb uses
     check(p, fees)
     print("\n  turnover coverage (years by source):")
     print(fee_coverage(turnover.rename(columns={"turnover": "exp_ratio", "turnover_source": "exp_source"})).to_string())

@@ -2,8 +2,21 @@
 __pycache__/
 .ipynb_checkpoints/
 
-# Project 5: download cache and logs written by pull_data.py (not needed to reproduce results)
+# Project 5: tables and figures the notebook recreates on every run
+Mutual Funds/output/
+# Project 5: download cache and intermediate files written by pull_data.py
+# (the notebook needs only the 4 tracked files in Mutual Funds/Data/)
 Mutual Funds/Data/raw/
-Mutual Funds/Data/fees_download_log.csv
+Mutual Funds/Data/sec_ticker_map.csv
+Mutual Funds/Data/returns_monthly.csv
 Mutual Funds/Data/check_annual_returns.csv
+Mutual Funds/Data/ff_factors.csv
+Mutual Funds/Data/nport_monthly.csv
+Mutual Funds/Data/nsar_semiannual.csv
+Mutual Funds/Data/nsar_monthly_flows.csv
+Mutual Funds/Data/expense_ratios_sec.csv
+Mutual Funds/Data/turnover_sec.csv
+Mutual Funds/Data/fees_download_log.csv
+Mutual Funds/Data/expense_ratio_by_year.csv
+Mutual Funds/Data/turnover_by_year.csv
 ~$*.docx

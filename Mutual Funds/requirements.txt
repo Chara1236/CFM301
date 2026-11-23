@@ -4,7 +4,3 @@ scipy==1.17.1
 statsmodels==0.15.0
 matplotlib==3.11.2
 ipykernel==7.4.0
-python-docx==1.2.0
-# only needed to re-download the data with pull_data.py (not to reproduce the results)
-requests==2.34.2
-yfinance==1.8.0

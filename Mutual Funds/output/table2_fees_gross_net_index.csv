@@ -1,5 +1,0 @@
-,fee_avg,fee_2025,gross_alpha,t_gross,net_alpha,t_net,index_alpha,t_index,bench_fee,fee_saving,verdict
-FCNTX,0.809,0.74,2.499,2.783,1.687,1.883,1.19,1.335,0.215,0.594,Justified
-TRBCX,0.832,0.7,2.153,2.293,1.322,1.41,0.485,0.582,0.23,0.602,Justified
-AGTHX,0.696,0.59,2.371,2.526,1.675,1.785,0.81,0.862,0.237,0.458,Justified
-FMAGX,0.699,0.64,-0.778,-0.692,-1.479,-1.315,-1.478,-1.488,0.232,0.467,Not justified (no gross alpha)
